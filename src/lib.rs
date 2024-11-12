@@ -4,10 +4,11 @@ use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
-use image::{DynamicImage, ImageFormat};
+use image::{ImageFormat};
 use zstd;
 use bincode;
 use xxhash_rust::xxh3::xxh3_64;
+use std::io::Cursor;
 
 const MAGIC_BYTES: &[u8; 4] = b"USF1";
 const VERSION: u8 = 1;
@@ -48,7 +49,7 @@ struct MetaData {
     index: HashMap<String, BlockLocation>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct BlockLocation {
     offset: u64,
     header_size: u32,
@@ -134,10 +135,10 @@ impl UniversalStorage {
     pub fn retrieve(&mut self, key: &str) -> io::Result<Vec<u8>> {
         let location = self.metadata.index.get(key)
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "Key not found"))?;
-
+    
         let mut result = Vec::new();
         let mut current_location = Some(location.clone());
-
+    
         while let Some(loc) = current_location {
             let block = self.read_block(&loc)?;
             
@@ -146,11 +147,12 @@ impl UniversalStorage {
             if checksum != block.header.checksum {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "Data corruption detected"));
             }
-
+    
             result.extend_from_slice(&block.data);
+            // current_location = block.next_location;  // This should work now that BlockLocation implements Clone
             current_location = block.next_location;
         }
-
+    
         Ok(result)
     }
 
@@ -214,10 +216,10 @@ impl UniversalStorage {
             DataType::Image => {
                 // For images, attempt to optimize using image crate
                 if let Ok(img) = image::load_from_memory(data) {
-                    let mut output = Vec::new();
-                    img.write_to(&mut output, ImageFormat::WebP)
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                    Ok((output, CompressionMethod::None))
+                    let mut output: Vec<u8> = Vec::new();
+                    let mut output = std::io::Cursor::new(Vec::new());
+                    img.write_to(&mut output, ImageFormat::WebP).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                    Ok((output.into_inner(), CompressionMethod::None))
                 } else {
                     // Fallback to regular compression
                     let compressed = zstd::encode_all(data, 21)

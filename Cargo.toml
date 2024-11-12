@@ -29,6 +29,10 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 # Error handling and utilities
 thiserror = "1.0"
 
+# Logging
+log = "0.4"
+simplelog = "0.12"
+
 [dev-dependencies]
 tempfile = "3.8"
 criterion = "0.5"
